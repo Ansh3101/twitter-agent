@@ -1,4 +1,5 @@
 import { Cookie } from 'tough-cookie';
+import fs from 'fs';
 import {
   bearerToken,
   FetchTransformOptions,
@@ -125,6 +126,29 @@ export interface ScraperOptions {
  * - Reusing Scraper objects is recommended to minimize the time spent authenticating unnecessarily.
  */
 export class Scraper {
+  /**
+   * Creates a new Scraper instance from a cookies file.
+   * @param cookiesPath Path to the cookies file (JSON format)
+   * @param options Optional ScraperOptions
+   * @returns A new Scraper instance initialized with the cookies
+   * @throws Error if the cookies file cannot be read or parsed
+   */
+  public static async fromCookiesFile(
+    cookiesPath: string,
+    options?: Partial<ScraperOptions>
+  ): Promise<Scraper> {
+    try {
+      const cookiesData = fs.readFileSync(cookiesPath, 'utf8');
+      const cookies = JSON.parse(cookiesData);
+      const scraper = new Scraper(options);
+      await scraper.setCookies(cookies);
+      return scraper;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to load cookies from file: ${errorMessage}`);
+    }
+  }
+
   private auth!: TwitterAuth;
   private authTrends!: TwitterAuth;
   private token: string;
