@@ -1,8 +1,16 @@
 {
   "name": "twitter-agent",
   "description": "A Twitter API client optimized for automation and persistent sessions (forked from agent-twitter-client)",
-  "keywords": [],
+  "keywords": ["twitter", "api", "client", "automation", "bot", "cookies", "session", "persistent", "scraper"],
   "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Xade/twitter-agent.git"
+  },
+  "homepage": "https://github.com/Xade/twitter-agent#readme",
+  "bugs": {
+    "url": "https://github.com/Xade/twitter-agent/issues"
+  },
   "main": "dist/default/cjs/index.js",
   "types": "./dist/types/index.d.ts",
   "exports": {
