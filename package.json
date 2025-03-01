@@ -1,6 +1,6 @@
 {
-  "name": "agent-twitter-client",
-  "description": "A twitter client for agents",
+  "name": "twitter-agent",
+  "description": "A Twitter API client optimized for automation and persistent sessions (forked from agent-twitter-client)",
   "keywords": [],
   "version": "0.1.0",
   "main": "dist/default/cjs/index.js",

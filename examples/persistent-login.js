@@ -20,8 +20,9 @@ async function main() {
       twoFactorSecret
     );
     
-    // Save cookies to file
-    fs.writeFileSync('persistent_cookies.json', JSON.stringify(cookies, null, 2));
+    // Convert Cookie objects to serializable format
+    const cookiesForSaving = cookies.map(cookie => cookie.toString());
+    fs.writeFileSync('persistent_cookies.json', JSON.stringify(cookiesForSaving, null, 2));
     console.log('Cookies saved to persistent_cookies.json\n');
 
     // Demonstrate how to use saved cookies

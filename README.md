@@ -1,18 +1,20 @@
-# Agent Twitter Client
+# Twitter Agent
 
-A lightweight Twitter API client with support for automated agents and persistent sessions.
+A lightweight Twitter API client optimized for automation and persistent sessions. 
+
+> **Credit**: This package is a fork of [agent-twitter-client](https://github.com/elizaos/agent-twitter-client) with added features for persistent cookie-based authentication and session management.
 
 ## Installation
 
 ```bash
-npm install agent-twitter-client
+npm install twitter-agent
 ```
 
 ## Quick Start
 
 ### Method 1: Basic Authentication (One-time login)
 ```javascript
-const { Scraper } = require('agent-twitter-client');
+const { Scraper } = require('twitter-agent');
 
 const scraper = new Scraper();
 await scraper.login(username, password, email, twoFactorSecret);
@@ -50,7 +52,7 @@ const scraper = await Scraper.fromCookiesFile('cookies.json');
 
 #### Example: Complete Flow with Error Handling
 ```javascript
-const { Scraper } = require('agent-twitter-client');
+const { Scraper } = require('twitter-agent');
 
 async function getTwitterClient() {
   const COOKIES_FILE = 'twitter_cookies.json';
@@ -92,7 +94,8 @@ const tweets = await twitter.getTweets('elonmusk', 1);
 
 ## Features
 
-- Persistent session management with cookies
+- ✨ **NEW**: Persistent session management with cookies
+- ✨ **NEW**: Built-in session validation and recovery
 - Support for 2FA and email verification
 - Full Twitter API coverage (tweets, profiles, following, etc.)
 - Built-in rate limiting and error handling
@@ -126,6 +129,14 @@ Searches for tweets matching the query.
 
 See the [API Documentation](docs/api.md) for a complete list of methods.
 
+## Contributing
+
+Pull requests are welcome! For major changes, please open an issue first to discuss what you would like to change.
+
 ## License
 
 MIT
+
+## Credit and Attribution
+
+This project is based on [agent-twitter-client](https://github.com/elizaos/agent-twitter-client) by elizaOS, which provides the core Twitter API functionality. We've extended it with additional features for persistent authentication and session management.

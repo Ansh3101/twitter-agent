@@ -133,16 +133,48 @@ export class Scraper {
    * @returns A new Scraper instance initialized with the cookies
    * @throws Error if the cookies file cannot be read or parsed
    */
+  /**
+   * Creates a new Scraper instance from cookie strings or Cookie objects
+   * @param cookies Array of cookie strings or Cookie objects
+   * @param options Optional ScraperOptions
+   * @returns A new Scraper instance initialized with the cookies
+   */
+  public static async fromCookies(
+    cookies: (string | Cookie)[],
+    options?: Partial<ScraperOptions>
+  ): Promise<Scraper> {
+    try {
+      const parsedCookies = cookies.map(cookie => 
+        typeof cookie === 'string' ? Cookie.parse(cookie) : cookie
+      ).filter((cookie): cookie is Cookie => cookie !== undefined);
+
+      const scraper = new Scraper(options);
+      await scraper.setCookies(parsedCookies);
+      return scraper;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to initialize from cookies: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Creates a new Scraper instance from a cookies file
+   * @param cookiesPath Path to the cookies file (JSON format)
+   * @param options Optional ScraperOptions
+   * @returns A new Scraper instance initialized with the cookies
+   * @throws Error if the cookies file cannot be read or parsed
+   */
   public static async fromCookiesFile(
     cookiesPath: string,
     options?: Partial<ScraperOptions>
   ): Promise<Scraper> {
     try {
       const cookiesData = fs.readFileSync(cookiesPath, 'utf8');
-      const cookies = JSON.parse(cookiesData);
-      const scraper = new Scraper(options);
-      await scraper.setCookies(cookies);
-      return scraper;
+      const cookieStrings = JSON.parse(cookiesData);
+      if (!Array.isArray(cookieStrings)) {
+        throw new Error('Cookies file must contain an array of cookie strings');
+      }
+      return Scraper.fromCookies(cookieStrings, options);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to load cookies from file: ${errorMessage}`);
