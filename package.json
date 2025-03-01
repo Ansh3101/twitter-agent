@@ -5,11 +5,11 @@
   "version": "0.1.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Xade/twitter-agent.git"
+    "url": "https://github.com/Ansh3101/twitter-agent.git"
   },
-  "homepage": "https://github.com/Xade/twitter-agent#readme",
+  "homepage": "https://github.com/Ansh3101/twitter-agent#readme",
   "bugs": {
-    "url": "https://github.com/Xade/twitter-agent/issues"
+    "url": "https://github.com/Ansh3101/twitter-agent/issues"
   },
   "main": "dist/default/cjs/index.js",
   "types": "./dist/types/index.d.ts",
