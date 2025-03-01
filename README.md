@@ -1,367 +1,131 @@
-# agent-twitter-client
+# Agent Twitter Client
 
-This is a modified version of [@the-convocation/twitter-scraper](https://github.com/the-convocation/twitter-scraper) with added functionality for sending tweets and retweets. This package does not require the Twitter API to use and will run in both the browser and server.
+A lightweight Twitter API client with support for automated agents and persistent sessions.
 
 ## Installation
 
-```sh
+```bash
 npm install agent-twitter-client
 ```
 
-## Setup
+## Quick Start
 
-Configure environment variables for authentication.
+### Method 1: Basic Authentication (One-time login)
+```javascript
+const { Scraper } = require('agent-twitter-client');
 
-```
-TWITTER_USERNAME=    # Account username
-TWITTER_PASSWORD=    # Account password
-TWITTER_EMAIL=       # Account email
-PROXY_URL=           # HTTP(s) proxy for requests (necessary for browsers)
-
-# Twitter API v2 credentials for tweet and poll functionality
-TWITTER_API_KEY=               # Twitter API Key
-TWITTER_API_SECRET_KEY=        # Twitter API Secret Key
-TWITTER_ACCESS_TOKEN=          # Access Token for Twitter API v2
-TWITTER_ACCESS_TOKEN_SECRET=   # Access Token Secret for Twitter API v2
-```
-
-### Getting Twitter Cookies
-
-It is important to use Twitter cookies to avoid sending a new login request to Twitter every time you want to perform an action.
-
-In your application, you will likely want to check for existing cookies. If cookies are not available, log in with user authentication credentials and cache the cookies for future use.
-
-```ts
-const scraper = await getScraper({ authMethod: 'password' });
-
-scraper.getCookies().then((cookies) => {
-  console.log(cookies);
-  // Remove 'Cookies' and save the cookies as a JSON array
-});
-```
-
-## Getting Started
-
-```ts
 const scraper = new Scraper();
-await scraper.login('username', 'password');
+await scraper.login(username, password, email, twoFactorSecret);
 
-// If using v2 functionality (currently required to support polls)
-await scraper.login(
-  'username',
-  'password',
-  'email',
-  'appKey',
-  'appSecret',
-  'accessToken',
-  'accessSecret',
-);
-
-const tweets = await scraper.getTweets('elonmusk', 10);
-const tweetsAndReplies = scraper.getTweetsAndReplies('elonmusk');
-const latestTweet = await scraper.getLatestTweet('elonmusk');
-const tweet = await scraper.getTweet('1234567890123456789');
-await scraper.sendTweet('Hello world!');
-
-// Create a poll
-await scraper.sendTweetV2(
-  `What's got you most hyped? Let us know! 🤖💸`,
-  undefined,
-  {
-    poll: {
-      options: [
-        { label: 'AI Innovations 🤖' },
-        { label: 'Crypto Craze 💸' },
-        { label: 'Both! 🌌' },
-        { label: 'Neither for Me 😅' },
-      ],
-      durationMinutes: 120, // Duration of the poll in minutes
-    },
-  },
-);
+// Use the scraper
+const tweets = await scraper.getTweets('elonmusk', 1);
 ```
 
-### Fetching Specific Tweet Data (V2)
+### Method 2: Cookie-based Authentication (Recommended)
 
-```ts
-// Fetch a single tweet with poll details
-const tweet = await scraper.getTweetV2('1856441982811529619', {
-  expansions: ['attachments.poll_ids'],
-  pollFields: ['options', 'end_datetime'],
-});
-console.log('tweet', tweet);
+This method allows you to maintain persistent sessions across script runs:
 
-// Fetch multiple tweets with poll and media details
-const tweets = await scraper.getTweetsV2(
-  ['1856441982811529619', '1856429655215260130'],
-  {
-    expansions: ['attachments.poll_ids', 'attachments.media_keys'],
-    pollFields: ['options', 'end_datetime'],
-    mediaFields: ['url', 'preview_image_url'],
-  },
-);
-console.log('tweets', tweets);
-```
-
-## API
-
-### Authentication
-
-```ts
-// Log in
-await scraper.login('username', 'password');
-
-// Log out
-await scraper.logout();
-
-// Check if logged in
-const isLoggedIn = await scraper.isLoggedIn();
-
-// Get current session cookies
-const cookies = await scraper.getCookies();
-
-// Set current session cookies
-await scraper.setCookies(cookies);
-
-// Clear current cookies
-await scraper.clearCookies();
-```
-
-### Profile
-
-```ts
-// Get a user's profile
-const profile = await scraper.getProfile('TwitterDev');
-
-// Get a user ID from their screen name
-const userId = await scraper.getUserIdByScreenName('TwitterDev');
-
-// Get logged-in user's profile
-const me = await scraper.me();
-```
-
-### Search
-
-```ts
-import { SearchMode } from 'agent-twitter-client';
-
-// Search for recent tweets
-const tweets = scraper.searchTweets('#nodejs', 20, SearchMode.Latest);
-
-// Search for profiles
-const profiles = scraper.searchProfiles('John', 10);
-
-// Fetch a page of tweet results
-const results = await scraper.fetchSearchTweets('#nodejs', 20, SearchMode.Top);
-
-// Fetch a page of profile results
-const profileResults = await scraper.fetchSearchProfiles('John', 10);
-```
-
-### Relationships
-
-```ts
-// Get a user's followers
-const followers = scraper.getFollowers('12345', 100);
-
-// Get who a user is following
-const following = scraper.getFollowing('12345', 100);
-
-// Fetch a page of a user's followers
-const followerResults = await scraper.fetchProfileFollowers('12345', 100);
-
-// Fetch a page of who a user is following
-const followingResults = await scraper.fetchProfileFollowing('12345', 100);
-
-// Follow a user
-const followUserResults = await scraper.followUser('elonmusk');
-```
-
-### Trends
-
-```ts
-// Get current trends
-const trends = await scraper.getTrends();
-
-// Fetch tweets from a list
-const listTweets = await scraper.fetchListTweets('1234567890', 50);
-```
-
-### Tweets
-
-```ts
-// Get a user's tweets
-const tweets = scraper.getTweets('TwitterDev');
-
-// Fetch the home timeline
-const homeTimeline = await scraper.fetchHomeTimeline(10, ['seenTweetId1','seenTweetId2']);
-
-// Get a user's liked tweets
-const likedTweets = scraper.getLikedTweets('TwitterDev');
-
-// Get a user's tweets and replies
-const tweetsAndReplies = scraper.getTweetsAndReplies('TwitterDev');
-
-// Get tweets matching specific criteria
-const timeline = scraper.getTweets('TwitterDev', 100);
-const retweets = await scraper.getTweetsWhere(
-  timeline,
-  (tweet) => tweet.isRetweet,
-);
-
-// Get a user's latest tweet
-const latestTweet = await scraper.getLatestTweet('TwitterDev');
-
-// Get a specific tweet by ID
-const tweet = await scraper.getTweet('1234567890123456789');
-
-// Send a tweet
-const sendTweetResults = await scraper.sendTweet('Hello world!');
-
-// Send a quote tweet - Media files are optional
-const sendQuoteTweetResults = await scraper.sendQuoteTweet(
-  'Hello world!',
-  '1234567890123456789',
-  ['mediaFile1', 'mediaFile2'],
-);
-
-// Retweet a tweet
-const retweetResults = await scraper.retweet('1234567890123456789');
-
-// Like a tweet
-const likeTweetResults = await scraper.likeTweet('1234567890123456789');
-```
-
-## Sending Tweets with Media
-
-### Media Handling
-
-The scraper requires media files to be processed into a specific format before sending:
-
-- Media must be converted to Buffer format
-- Each media file needs its MIME type specified
-- This helps the scraper distinguish between image and video processing models
-
-### Basic Tweet with Media
-
-```ts
-// Example: Sending a tweet with media attachments
-const mediaData = [
-  {
-    data: fs.readFileSync('path/to/image.jpg'),
-    mediaType: 'image/jpeg',
-  },
-  {
-    data: fs.readFileSync('path/to/video.mp4'),
-    mediaType: 'video/mp4',
-  },
-];
-
-await scraper.sendTweet('Hello world!', undefined, mediaData);
-```
-
-### Supported Media Types
-
-```ts
-// Image formats and their MIME types
-const imageTypes = {
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.png': 'image/png',
-  '.gif': 'image/gif',
-};
-
-// Video format
-const videoTypes = {
-  '.mp4': 'video/mp4',
-};
-```
-
-### Media Upload Limitations
-
-- Maximum 4 images per tweet
-- Only 1 video per tweet
-- Maximum video file size: 512MB
-- Supported image formats: JPG, PNG, GIF
-- Supported video format: MP4
-
-## Grok Integration
-
-This client provides programmatic access to Grok through Twitter's interface, offering a unique capability that even Grok's official API cannot match - access to real-time Twitter data. While Grok has a standalone API, only by interacting with Grok through Twitter can you leverage its ability to analyze and respond to live Twitter content. This makes it the only way to programmatically access an LLM with direct insight into Twitter's real-time information. [@grokkyAi](https://x.com/grokkyAi)
-
-### Basic Usage
-
-```ts
+#### Step 1: Get Persistent Cookies (Do this once)
+```javascript
 const scraper = new Scraper();
-await scraper.login('username', 'password');
+const cookies = await scraper.persistentLogin(
+  username,
+  password,
+  email,          // optional
+  twoFactorSecret // optional
+);
 
-// Start a new conversation
-const response = await scraper.grokChat({
-  messages: [{ role: 'user', content: 'What are your thoughts on AI?' }],
-});
-
-console.log(response.message); // Grok's response
-console.log(response.messages); // Full conversation history
+// Save cookies for future use (e.g., in a database)
+const cookieStrings = cookies.map(cookie => cookie.toString());
 ```
 
-If no `conversationId` is provided, the client will automatically create a new conversation.
+#### Step 2: Use Saved Cookies (Subsequent runs)
+```javascript
+// Option A: Load from cookie strings (e.g., from database)
+const scraper = await Scraper.fromCookies(cookieStrings);
 
-### Handling Rate Limits
-
-Grok has rate limits of 25 messages every 2 hours for non-premium accounts. The client provides rate limit information in the response:
-
-```ts
-const response = await scraper.grokChat({
-  messages: [{ role: 'user', content: 'Hello!' }],
-});
-
-if (response.rateLimit?.isRateLimited) {
-  console.log(response.rateLimit.message);
-  console.log(response.rateLimit.upsellInfo); // Premium upgrade information
-}
+// Option B: Load from file
+const scraper = await Scraper.fromCookiesFile('cookies.json');
 ```
 
-### Response Types
+#### Example: Complete Flow with Error Handling
+```javascript
+const { Scraper } = require('agent-twitter-client');
 
-The Grok integration includes TypeScript types for better development experience:
+async function getTwitterClient() {
+  const COOKIES_FILE = 'twitter_cookies.json';
+  let scraper;
 
-```ts
-interface GrokChatOptions {
-  messages: GrokMessage[];
-  conversationId?: string;
-  returnSearchResults?: boolean;
-  returnCitations?: boolean;
+  try {
+    // Try to restore session from saved cookies
+    if (fs.existsSync(COOKIES_FILE)) {
+      scraper = await Scraper.fromCookiesFile(COOKIES_FILE);
+      if (await scraper.isLoggedIn()) {
+        return scraper;
+      }
+    }
+
+    // If no valid cookies, login and save new ones
+    scraper = new Scraper();
+    const cookies = await scraper.persistentLogin(
+      process.env.TWITTER_USERNAME,
+      process.env.TWITTER_PASSWORD,
+      process.env.TWITTER_EMAIL,
+      process.env.TWITTER_2FA_SECRET
+    );
+
+    // Save cookies for next time
+    const cookieStrings = cookies.map(c => c.toString());
+    fs.writeFileSync(COOKIES_FILE, JSON.stringify(cookieStrings, null, 2));
+    
+    return scraper;
+  } catch (error) {
+    console.error('Authentication failed:', error.message);
+    throw error;
+  }
 }
 
-interface GrokChatResponse {
-  conversationId: string;
-  message: string;
-  messages: GrokMessage[];
-  webResults?: any[];
-  metadata?: any;
-  rateLimit?: GrokRateLimit;
-}
+// Usage
+const twitter = await getTwitterClient();
+const tweets = await twitter.getTweets('elonmusk', 1);
 ```
 
-### Advanced Usage
+## Features
 
-```ts
-const response = await scraper.grokChat({
-  messages: [{ role: 'user', content: 'Research quantum computing' }],
-  returnSearchResults: true, // Include web search results
-  returnCitations: true, // Include citations for information
-});
+- Persistent session management with cookies
+- Support for 2FA and email verification
+- Full Twitter API coverage (tweets, profiles, following, etc.)
+- Built-in rate limiting and error handling
+- TypeScript support
 
-// Access web results if available
-if (response.webResults) {
-  console.log('Sources:', response.webResults);
-}
+## API Documentation
 
-// Full conversation with history
-console.log('Conversation:', response.messages);
-```
+### Authentication Methods
 
-### Limitations
+#### `scraper.persistentLogin(username, password, email?, twoFactorSecret?)`
+Logs in and returns validated cookies for future use.
+- Returns: `Promise<Cookie[]>`
 
-- Message history prefilling is currently limited due to unofficial API usage
-- Rate limits are enforced (25 messages/2 hours for non-premium)
+#### `Scraper.fromCookies(cookies)`
+Creates a new scraper instance from cookie strings or Cookie objects.
+- Returns: `Promise<Scraper>`
+
+#### `Scraper.fromCookiesFile(path)`
+Creates a new scraper instance from a cookies JSON file.
+- Returns: `Promise<Scraper>`
+
+### Core Methods
+
+#### `scraper.getTweets(username, maxTweets = 200)`
+Fetches tweets from a user's timeline.
+- Returns: `AsyncGenerator<Tweet>`
+
+#### `scraper.searchTweets(query, maxTweets, searchMode?)`
+Searches for tweets matching the query.
+- Returns: `AsyncGenerator<Tweet>`
+
+See the [API Documentation](docs/api.md) for a complete list of methods.
+
+## License
+
+MIT
