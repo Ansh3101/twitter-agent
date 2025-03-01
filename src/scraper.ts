@@ -757,6 +757,41 @@ export class Scraper {
   }
 
   /**
+   * Performs login with credentials and returns persistent cookies after validation.
+   * @param username The username of the Twitter account
+   * @param password The password of the Twitter account
+   * @param email Optional email for accounts with email confirmation
+   * @param twoFactorSecret Optional 2FA secret for accounts with 2FA enabled
+   * @returns Array of validated cookies that can be used for future logins
+   * @throws Error if login fails or cookie validation fails
+   */
+  public async persistentLogin(
+    username: string,
+    password: string,
+    email?: string,
+    twoFactorSecret?: string
+  ): Promise<Cookie[]> {
+    // 1. Login with credentials
+    await this.login(username, password, email, twoFactorSecret);
+
+    // 2. Get cookies after successful login
+    const cookies = await this.getCookies();
+
+    // 3. Test cookies work by creating new scraper
+    const testScraper = new Scraper(this.options);
+    await testScraper.setCookies(cookies);
+
+    // 4. Validate cookies work by checking login
+    const isValid = await testScraper.isLoggedIn();
+    if (!isValid) {
+      throw new Error('Cookie validation failed - unable to authenticate with obtained cookies');
+    }
+
+    // 5. Return working cookies
+    return cookies;
+  }
+
+  /**
    * Login to Twitter as a real Twitter account. This enables running
    * searches.
    * @param username The username of the Twitter account to login with.
