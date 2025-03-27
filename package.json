@@ -1,7 +1,17 @@
 {
   "name": "twitter-agent",
   "description": "A Twitter API client optimized for automation and persistent sessions (forked from agent-twitter-client)",
-  "keywords": ["twitter", "api", "client", "automation", "bot", "cookies", "session", "persistent", "scraper"],
+  "keywords": [
+    "twitter",
+    "api",
+    "client",
+    "automation",
+    "bot",
+    "cookies",
+    "session",
+    "persistent",
+    "scraper"
+  ],
   "version": "0.1.0",
   "repository": {
     "type": "git",
@@ -35,6 +45,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@playwright/test": "^1.51.1",
     "@roamhq/wrtc": "^0.8.0",
     "@sinclair/typebox": "^0.32.20",
     "headers-polyfill": "^3.1.2",
