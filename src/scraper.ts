@@ -6,6 +6,8 @@ import {
   requestApi,
   RequestApiResult,
 } from './api';
+import { withRetry, withRateLimitRetry } from './utils/retry';
+import logger from './utils/logger';
 import { TwitterAuth, TwitterAuthOptions, TwitterGuestAuth } from './auth';
 import { TwitterUserAuth } from './auth-user';
 import {
@@ -139,44 +141,74 @@ export class Scraper {
    * @param options Optional ScraperOptions
    * @returns A new Scraper instance initialized with the cookies
    */
+  /**
+   * Creates a new Scraper instance from cookie strings or Cookie objects
+   *
+   * @param cookies - Array of cookie strings or Cookie objects
+   * @param options - Optional ScraperOptions
+   * @returns A new Scraper instance initialized with the cookies
+   * @throws Error if cookies cannot be parsed or validated
+   */
   public static async fromCookies(
     cookies: (string | Cookie)[],
-    options?: Partial<ScraperOptions>
+    options?: Partial<ScraperOptions>,
   ): Promise<Scraper> {
     try {
-      const parsedCookies = cookies.map(cookie => 
-        typeof cookie === 'string' ? Cookie.parse(cookie) : cookie
-      ).filter((cookie): cookie is Cookie => cookie !== undefined);
+      logger.info(`Initializing scraper from ${cookies.length} cookies`);
+      const parsedCookies = cookies
+        .map((cookie) =>
+          typeof cookie === 'string' ? Cookie.parse(cookie) : cookie,
+        )
+        .filter((cookie): cookie is Cookie => cookie !== undefined);
 
+      if (parsedCookies.length === 0) {
+        throw new Error('No valid cookies were provided');
+      }
+
+      logger.debug(`Successfully parsed ${parsedCookies.length} cookies`);
       const scraper = new Scraper(options);
       await scraper.setCookies(parsedCookies);
       return scraper;
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error(`Failed to initialize from cookies: ${errorMessage}`);
       throw new Error(`Failed to initialize from cookies: ${errorMessage}`);
     }
   }
 
   /**
    * Creates a new Scraper instance from a cookies file
-   * @param cookiesPath Path to the cookies file (JSON format)
-   * @param options Optional ScraperOptions
+   *
+   * @param cookiesPath - Path to the cookies file (JSON format)
+   * @param options - Optional ScraperOptions
    * @returns A new Scraper instance initialized with the cookies
    * @throws Error if the cookies file cannot be read or parsed
    */
   public static async fromCookiesFile(
     cookiesPath: string,
-    options?: Partial<ScraperOptions>
+    options?: Partial<ScraperOptions>,
   ): Promise<Scraper> {
     try {
+      logger.info(`Loading cookies from file: ${cookiesPath}`);
+
+      if (!fs.existsSync(cookiesPath)) {
+        throw new Error(`Cookies file does not exist: ${cookiesPath}`);
+      }
+
       const cookiesData = fs.readFileSync(cookiesPath, 'utf8');
       const cookieStrings = JSON.parse(cookiesData);
+
       if (!Array.isArray(cookieStrings)) {
         throw new Error('Cookies file must contain an array of cookie strings');
       }
+
+      logger.debug(`Found ${cookieStrings.length} cookies in file`);
       return Scraper.fromCookies(cookieStrings, options);
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error(`Failed to load cookies from file: ${errorMessage}`);
       throw new Error(`Failed to load cookies from file: ${errorMessage}`);
     }
   }
@@ -207,12 +239,17 @@ export class Scraper {
 
   /**
    * Fetches a Twitter profile.
-   * @param username The Twitter username of the profile to fetch, without an `@` at the beginning.
-   * @returns The requested {@link Profile}.
+   *
+   * @param username - The Twitter username of the profile to fetch, without an `@` at the beginning
+   * @returns The requested {@link Profile}
+   * @throws Error if the profile cannot be fetched
    */
   public async getProfile(username: string): Promise<Profile> {
-    const res = await getProfile(username, this.auth);
-    return this.handleResponse(res);
+    logger.debug(`Fetching profile for username: ${username}`);
+    return withRateLimitRetry(async () => {
+      const res = await getProfile(username, this.auth);
+      return this.handleResponse(res);
+    });
   }
 
   /**
@@ -775,9 +812,17 @@ export class Scraper {
    * @returns `true` if the scraper is logged in with a real user account; otherwise `false`.
    */
   public async isLoggedIn(): Promise<boolean> {
-    return (
-      (await this.auth.isLoggedIn()) && (await this.authTrends.isLoggedIn())
-    );
+    try {
+      const authResult = await this.auth.isLoggedIn();
+      const authTrendsResult = await this.authTrends.isLoggedIn();
+      const isLoggedIn = authResult && authTrendsResult;
+      
+      logger.debug(`Login status check: ${isLoggedIn ? 'logged in' : 'not logged in'}`);
+      return isLoggedIn;
+    } catch (error) {
+      logger.warn('Error checking login status', error);
+      return false;
+    }
   }
 
   /**
@@ -790,10 +835,11 @@ export class Scraper {
 
   /**
    * Performs login with credentials and returns persistent cookies after validation.
-   * @param username The username of the Twitter account
-   * @param password The password of the Twitter account
-   * @param email Optional email for accounts with email confirmation
-   * @param twoFactorSecret Optional 2FA secret for accounts with 2FA enabled
+   *
+   * @param username - The username of the Twitter account
+   * @param password - The password of the Twitter account
+   * @param email - Optional email for accounts with email confirmation
+   * @param twoFactorSecret - Optional 2FA secret for accounts with 2FA enabled
    * @returns Array of validated cookies that can be used for future logins
    * @throws Error if login fails or cookie validation fails
    */
@@ -801,35 +847,56 @@ export class Scraper {
     username: string,
     password: string,
     email?: string,
-    twoFactorSecret?: string
+    twoFactorSecret?: string,
   ): Promise<Cookie[]> {
-    // 1. Login with credentials
-    await this.login(username, password, email, twoFactorSecret);
+    logger.info(`Performing persistent login for user: ${username}`);
 
-    // 2. Get cookies after successful login
-    const cookies = await this.getCookies();
+    try {
+      // 1. Login with credentials
+      await this.login(username, password, email, twoFactorSecret);
+      logger.info('Login successful');
 
-    // 3. Test cookies work by creating new scraper
-    const testScraper = new Scraper(this.options);
-    await testScraper.setCookies(cookies);
+      // 2. Get cookies after successful login
+      const cookies = await this.getCookies();
+      logger.debug(`Retrieved ${cookies.length} cookies from successful login`);
 
-    // 4. Validate cookies work by checking login
-    const isValid = await testScraper.isLoggedIn();
-    if (!isValid) {
-      throw new Error('Cookie validation failed - unable to authenticate with obtained cookies');
+      // 3. Test cookies work by creating new scraper
+      const testScraper = new Scraper(this.options);
+      await testScraper.setCookies(cookies);
+
+      // 4. Validate cookies work by checking login
+      const isValid = await testScraper.isLoggedIn();
+      if (!isValid) {
+        throw new Error(
+          'Cookie validation failed - unable to authenticate with obtained cookies',
+        );
+      }
+
+      logger.info('Cookie validation successful');
+
+      // 5. Return working cookies
+      return cookies;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error(`Persistent login failed: ${errorMessage}`);
+      throw new Error(`Persistent login failed: ${errorMessage}`);
     }
-
-    // 5. Return working cookies
-    return cookies;
   }
 
   /**
    * Login to Twitter as a real Twitter account. This enables running
-   * searches.
-   * @param username The username of the Twitter account to login with.
-   * @param password The password of the Twitter account to login with.
-   * @param email The email to log in with, if you have email confirmation enabled.
-   * @param twoFactorSecret The secret to generate two factor authentication tokens with, if you have two factor authentication enabled.
+   * searches and accessing authenticated endpoints.
+   *
+   * @param username - The username of the Twitter account to login with
+   * @param password - The password of the Twitter account to login with
+   * @param email - The email to log in with, if you have email confirmation enabled
+   * @param twoFactorSecret - The secret to generate two factor authentication tokens with
+   * @param appKey - Optional API key for v2 API
+   * @param appSecret - Optional API secret for v2 API
+   * @param accessToken - Optional access token for v2 API
+   * @param accessSecret - Optional access token secret for v2 API
+   * @throws Error if login fails
    */
   public async login(
     username: string,
@@ -841,20 +908,43 @@ export class Scraper {
     accessToken?: string,
     accessSecret?: string,
   ): Promise<void> {
-    // Swap in a real authorizer for all requests
-    const userAuth = new TwitterUserAuth(this.token, this.getAuthOptions());
-    await userAuth.login(
-      username,
-      password,
-      email,
-      twoFactorSecret,
-      appKey,
-      appSecret,
-      accessToken,
-      accessSecret,
-    );
-    this.auth = userAuth;
-    this.authTrends = userAuth;
+    logger.info(`Attempting to login with username: ${username}`);
+
+    try {
+      // Swap in a real authorizer for all requests
+      const userAuth = new TwitterUserAuth(this.token, this.getAuthOptions());
+
+      await withRetry(
+        async () => {
+          await userAuth.login(
+            username,
+            password,
+            email,
+            twoFactorSecret,
+            appKey,
+            appSecret,
+            accessToken,
+            accessSecret,
+          );
+        },
+        {
+          maxRetries: 2,
+          initialDelay: 2000,
+          onRetry: (attempt) => {
+            logger.warn(`Login attempt ${attempt} failed, retrying...`);
+          },
+        },
+      );
+
+      this.auth = userAuth;
+      this.authTrends = userAuth;
+      logger.info('Login successful');
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error(`Login failed: ${errorMessage}`);
+      throw new Error(`Login failed: ${errorMessage}`);
+    }
   }
 
   /**
@@ -879,20 +969,19 @@ export class Scraper {
         typeof document !== 'undefined' ? document.location.toString() : twUrl,
       );
   }
-
+  
   /**
-   * Set cookies for the current session.
-   * @param cookies The cookies to set for the current session.
+   * Sets cookies for the current session.
+   * @param cookies Array of cookies to set
    */
-  public async setCookies(cookies: (string | Cookie)[]): Promise<void> {
-    const userAuth = new TwitterUserAuth(this.token, this.getAuthOptions());
+  public async setCookies(cookies: Cookie[]): Promise<void> {
     for (const cookie of cookies) {
-      await userAuth.cookieJar().setCookie(cookie, twUrl);
+      await this.auth.cookieJar().setCookie(cookie, twUrl);
+      await this.authTrends.cookieJar().setCookie(cookie, twUrl);
     }
-
-    this.auth = userAuth;
-    this.authTrends = userAuth;
+    logger.debug(`Set ${cookies.length} cookies`);
   }
+
 
   /**
    * Clear all cookies for the current session.
@@ -910,7 +999,7 @@ export class Scraper {
    */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   public withCookie(_cookie: string): Scraper {
-    console.warn(
+    logger.warn(
       'Warning: Scraper#withCookie is deprecated and will be removed in a later version. Use Scraper#login or Scraper#setCookies instead.',
     );
     return this;
@@ -924,7 +1013,7 @@ export class Scraper {
    */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   public withXCsrfToken(_token: string): Scraper {
-    console.warn(
+    logger.warn(
       'Warning: Scraper#withXCsrfToken is deprecated and will be removed in a later version.',
     );
     return this;
@@ -944,6 +1033,7 @@ export class Scraper {
       mediaData: { data: Buffer; mediaType: string }[];
     },
   ) {
+    logger.debug(`Sending quote tweet for tweet ID: ${quotedTweetId}`);
     return await createQuoteTweetRequest(
       text,
       quotedTweetId,
@@ -958,8 +1048,10 @@ export class Scraper {
    * @returns A promise that resolves when the tweet is liked.
    */
   public async likeTweet(tweetId: string): Promise<void> {
-    // Call the likeTweet function from tweets.ts
-    await likeTweet(tweetId, this.auth);
+    logger.debug(`Liking tweet with ID: ${tweetId}`);
+    await withRateLimitRetry(async () => {
+      await likeTweet(tweetId, this.auth);
+    });
   }
 
   /**
@@ -968,23 +1060,27 @@ export class Scraper {
    * @returns A promise that resolves when the tweet is retweeted.
    */
   public async retweet(tweetId: string): Promise<void> {
-    // Call the retweet function from tweets.ts
-    await retweet(tweetId, this.auth);
+    logger.debug(`Retweeting tweet with ID: ${tweetId}`);
+    await withRateLimitRetry(async () => {
+      await retweet(tweetId, this.auth);
+    });
   }
 
   /**
-   * Follows a user with the given user ID.
-   * @param userId The user ID of the user to follow.
+   * Follows a user with the given username.
+   * @param userName The username of the user to follow.
    * @returns A promise that resolves when the user is followed.
    */
   public async followUser(userName: string): Promise<void> {
-    // Call the followUser function from relationships.ts
-    await followUser(userName, this.auth);
+    logger.debug(`Following user: ${userName}`);
+    await withRateLimitRetry(async () => {
+      await followUser(userName, this.auth);
+    });
   }
 
   /**
    * Fetches direct message conversations
-   * @param count Number of conversations to fetch (default: 50)
+   * @param userId User ID to fetch conversations for
    * @param cursor Pagination cursor for fetching more conversations
    * @returns Array of DM conversations and other details
    */
@@ -992,7 +1088,12 @@ export class Scraper {
     userId: string,
     cursor?: string,
   ): Promise<DirectMessagesResponse> {
-    return await getDirectMessageConversations(userId, this.auth, cursor);
+    logger.debug(
+      `Fetching direct message conversations for user ID: ${userId}`,
+    );
+    return await withRateLimitRetry(async () => {
+      return getDirectMessageConversations(userId, this.auth, cursor);
+    });
   }
 
   /**
@@ -1005,7 +1106,10 @@ export class Scraper {
     conversationId: string,
     text: string,
   ): Promise<SendDirectMessageResponse> {
-    return await sendDirectMessage(this.auth, conversationId, text);
+    logger.debug(`Sending direct message to conversation: ${conversationId}`);
+    return await withRateLimitRetry(async () => {
+      return sendDirectMessage(this.auth, conversationId, text);
+    });
   }
 
   private getAuthOptions(): Partial<TwitterAuthOptions> {
@@ -1015,9 +1119,29 @@ export class Scraper {
     };
   }
 
+  /**
+   * Handles the response from a Twitter API request, providing clearer error messages
+   * and extracting the value from successful responses
+   *
+   * @param res - The API result containing either a successful value or an error
+   * @returns The extracted value from a successful response
+   * @throws The error from a failed response with additional context
+   */
   private handleResponse<T>(res: RequestApiResult<T>): T {
     if (!res.success) {
-      throw res.err;
+      // Enhance error message with more context
+      const errorMessage =
+        res.err instanceof Error ? res.err.message : String(res.err);
+
+      const enhancedError = new Error(
+        `Twitter API request failed: ${errorMessage}`,
+      );
+      if (res.err instanceof Error && res.err.stack) {
+        enhancedError.stack = res.err.stack;
+      }
+
+      logger.error(enhancedError);
+      throw enhancedError;
     }
 
     return res.value;
@@ -1029,6 +1153,7 @@ export class Scraper {
    * @returns The details of the Audio Space.
    */
   public async getAudioSpaceById(id: string): Promise<AudioSpace> {
+    logger.debug(`Fetching audio space with ID: ${id}`);
     const variables = {
       id,
       isMetatagsQuery: false,
@@ -1036,7 +1161,9 @@ export class Scraper {
       withListeners: true,
     };
 
-    return await fetchAudioSpaceById(variables, this.auth);
+    return await withRateLimitRetry(async () => {
+      return fetchAudioSpaceById(variables, this.auth);
+    });
   }
 
   /**
@@ -1044,7 +1171,10 @@ export class Scraper {
    * @returns An array of space topics.
    */
   public async browseSpaceTopics(): Promise<Subtopic[]> {
-    return await fetchBrowseSpaceTopics(this.auth);
+    logger.debug('Browsing space topics');
+    return await withRateLimitRetry(async () => {
+      return fetchBrowseSpaceTopics(this.auth);
+    });
   }
 
   /**
@@ -1052,7 +1182,10 @@ export class Scraper {
    * @returns An array of communities.
    */
   public async communitySelectQuery(): Promise<Community[]> {
-    return await fetchCommunitySelectQuery(this.auth);
+    logger.debug('Querying available communities');
+    return await withRateLimitRetry(async () => {
+      return fetchCommunitySelectQuery(this.auth);
+    });
   }
 
   /**
@@ -1063,7 +1196,12 @@ export class Scraper {
   public async getAudioSpaceStreamStatus(
     mediaKey: string,
   ): Promise<LiveVideoStreamStatus> {
-    return await fetchLiveVideoStreamStatus(mediaKey, this.auth);
+    logger.debug(
+      `Fetching audio space stream status for media key: ${mediaKey}`,
+    );
+    return await withRateLimitRetry(async () => {
+      return fetchLiveVideoStreamStatus(mediaKey, this.auth);
+    });
   }
 
   /**
@@ -1076,11 +1214,14 @@ export class Scraper {
   public async getAudioSpaceStatus(
     audioSpaceId: string,
   ): Promise<LiveVideoStreamStatus> {
+    logger.debug(`Fetching audio space status for space ID: ${audioSpaceId}`);
     const audioSpace = await this.getAudioSpaceById(audioSpaceId);
 
     const mediaKey = audioSpace.metadata.media_key;
     if (!mediaKey) {
-      throw new Error('Media Key not found in Audio Space metadata.');
+      const error = new Error('Media Key not found in Audio Space metadata.');
+      logger.error(error);
+      throw error;
     }
 
     return await this.getAudioSpaceStreamStatus(mediaKey);
@@ -1091,7 +1232,10 @@ export class Scraper {
    * @returns The Periscope authentication token.
    */
   public async authenticatePeriscope(): Promise<string> {
-    return await fetchAuthenticatePeriscope(this.auth);
+    logger.debug('Authenticating with Periscope');
+    return await withRetry(async () => {
+      return fetchAuthenticatePeriscope(this.auth);
+    });
   }
 
   /**
@@ -1102,16 +1246,22 @@ export class Scraper {
   public async loginTwitterToken(
     jwt: string,
   ): Promise<LoginTwitterTokenResponse> {
-    return await fetchLoginTwitterToken(jwt, this.auth);
+    logger.debug('Logging in with Twitter token via Periscope JWT');
+    return await withRetry(async () => {
+      return fetchLoginTwitterToken(jwt, this.auth);
+    });
   }
 
   /**
    * Orchestrates the flow: get token -> login -> return Periscope cookie
    */
   public async getPeriscopeCookie(): Promise<string> {
+    logger.debug('Getting Periscope cookie through authentication flow');
     const periscopeToken = await this.authenticatePeriscope();
+    logger.debug('Obtained Periscope token, now logging in to Twitter');
 
     const loginResponse = await this.loginTwitterToken(periscopeToken);
+    logger.debug('Login successful, returning cookie');
 
     return loginResponse.cookie;
   }
@@ -1121,8 +1271,11 @@ export class Scraper {
    * @param id The ID of the article to fetch. In the format of (http://x.com/i/article/id)
    * @returns The {@link TimelineArticle} object, or `null` if it couldn't be fetched.
    */
-  public getArticle(id: string): Promise<TimelineArticle | null> {
-    return getArticle(id, this.auth);
+  public async getArticle(id: string): Promise<TimelineArticle | null> {
+    logger.debug(`Fetching article with ID: ${id}`);
+    return await withRateLimitRetry(async () => {
+      return getArticle(id, this.auth);
+    });
   }
 
   /**
@@ -1130,7 +1283,10 @@ export class Scraper {
    * @returns A promise that resolves to the conversation ID string.
    */
   public async createGrokConversation(): Promise<string> {
-    return await createGrokConversation(this.auth);
+    logger.debug('Creating new Grok conversation');
+    return await withRetry(async () => {
+      return createGrokConversation(this.auth);
+    });
   }
 
   /**
@@ -1143,7 +1299,13 @@ export class Scraper {
    * @returns A promise that resolves to the Grok chat response.
    */
   public async grokChat(options: GrokChatOptions): Promise<GrokChatResponse> {
-    return await grokChat(options, this.auth);
+    logger.debug('Sending message to Grok chat', {
+      conversationId: options.conversationId,
+      messageCount: options.messages?.length,
+    });
+    return await withRetry(async () => {
+      return grokChat(options, this.auth);
+    });
   }
 
   /**
@@ -1152,7 +1314,27 @@ export class Scraper {
    * @returns An array of users (retweeters).
    */
   public async getRetweetersOfTweet(tweetId: string): Promise<Retweeter[]> {
-    return await getAllRetweeters(tweetId, this.auth);
+    logger.debug(`Fetching retweeters for tweet ID: ${tweetId}`);
+    return await withRateLimitRetry(async () => {
+      return getAllRetweeters(tweetId, this.auth);
+    });
+  }
+
+  /**
+   * Closes the scraper instance and cleans up any resources
+   * This method should be called when the scraper is no longer needed
+   */
+  public async close(): Promise<void> {
+    logger.debug('Closing scraper instance and cleaning up resources');
+    try {
+      // Clean up any active sessions if needed
+      await this.logout();
+      // Additional cleanup could be added here if needed
+      logger.info('Scraper instance closed successfully');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.warn(`Error during scraper cleanup: ${errorMessage}`);
+    }
   }
 
   /**
@@ -1166,35 +1348,53 @@ export class Scraper {
     quotedTweetId: string,
     maxTweetsPerPage = 20,
   ): Promise<Tweet[]> {
+    logger.debug(`Fetching all quoted tweets for tweet ID: ${quotedTweetId}`);
     const allQuotes: Tweet[] = [];
     let cursor: string | undefined;
     let prevCursor: string | undefined;
 
     while (true) {
-      const page = await fetchQuotedTweetsPage(
-        quotedTweetId,
-        maxTweetsPerPage,
-        this.auth,
-        cursor,
-      );
+      try {
+        const page = await withRateLimitRetry(() =>
+          fetchQuotedTweetsPage(
+            quotedTweetId,
+            maxTweetsPerPage,
+            this.auth,
+            cursor,
+          ),
+        );
 
-      // If there's no new tweets, stop
-      if (!page.tweets || page.tweets.length === 0) {
+        // If there's no new tweets, stop
+        if (!page.tweets || page.tweets.length === 0) {
+          logger.debug('No tweets found on this page, stopping pagination');
+          break;
+        }
+
+        allQuotes.push(...page.tweets);
+        logger.debug(
+          `Found ${page.tweets.length} quotes, total so far: ${allQuotes.length}`,
+        );
+
+        // If next is missing or same => stop
+        if (!page.next || page.next === cursor || page.next === prevCursor) {
+          logger.debug(
+            'No next cursor or repeated cursor, stopping pagination',
+          );
+          break;
+        }
+
+        // Move cursors
+        prevCursor = cursor;
+        cursor = page.next;
+      } catch (error) {
+        logger.error('Error fetching quoted tweets page', error);
         break;
       }
-
-      allQuotes.push(...page.tweets);
-
-      // If next is missing or same => stop
-      if (!page.next || page.next === cursor || page.next === prevCursor) {
-        break;
-      }
-
-      // Move cursors
-      prevCursor = cursor;
-      cursor = page.next;
     }
 
+    logger.info(
+      `Retrieved a total of ${allQuotes.length} quoted tweets for tweet ID: ${quotedTweetId}`,
+    );
     return allQuotes;
   }
 }
