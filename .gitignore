@@ -122,3 +122,6 @@ cookies.json
 twitter_cookies.json
 *.cookies.json
 .DS_Store
+twitter-api/package-lock.json
+twitter-api/test-all-endpoints.sh
+twitter-api/mock-success-responses.json
